@@ -362,7 +362,7 @@ resource "aws_route" "private_transit_gateway" {
 }
 
 resource "aws_route" "private_additional" {
-  count = local.create_vpc && var.enable_additional_private_route ? 1 : 0
+  count = local.create_vpc && var.enable_additional_private_route ? local.len_private_subnets : 0
 
   route_table_id         = element(aws_route_table.private[*].id, count.index)
   destination_cidr_block = var.additional_destination_cidr_block
