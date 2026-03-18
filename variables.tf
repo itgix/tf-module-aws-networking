@@ -995,3 +995,43 @@ variable "flow_log_cloudwatch_log_group_skip_destroy" {
   type        = bool
   default     = false
 }
+
+################################################################################
+# Route 53 Resolver Query Log
+################################################################################
+
+variable "enable_r53_resolver_query_log" {
+  description = "Whether to enable Route 53 Resolver query logging for the VPC"
+  type        = bool
+  default     = false
+}
+
+variable "r53_resolver_query_log_cw_log_group_name_prefix" {
+  description = "Name prefix for the CloudWatch Log Group used for R53 Resolver query logs"
+  type        = string
+  default     = "/aws/r53-resolver-query-log/"
+}
+
+variable "r53_resolver_query_log_cw_retention_in_days" {
+  description = "Number of days to retain R53 Resolver query logs in CloudWatch"
+  type        = number
+  default     = 90
+}
+
+variable "r53_resolver_query_log_cw_kms_key_id" {
+  description = "ARN of the KMS key to encrypt R53 Resolver query log CloudWatch Log Group"
+  type        = string
+  default     = null
+}
+
+variable "r53_resolver_query_log_cw_skip_destroy" {
+  description = "Set to true to prevent the R53 Resolver query log CloudWatch Log Group from being deleted on destroy"
+  type        = bool
+  default     = false
+}
+
+variable "r53_resolver_query_log_tags" {
+  description = "Additional tags for R53 Resolver query log resources"
+  type        = map(string)
+  default     = {}
+}

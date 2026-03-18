@@ -390,3 +390,22 @@ output "name" {
   description = "The name of the VPC specified as argument to this module"
   value       = var.name
 }
+
+################################################################################
+# Route 53 Resolver Query Log
+################################################################################
+
+output "r53_resolver_query_log_config_id" {
+  description = "The ID of the Route 53 Resolver query logging configuration"
+  value       = try(aws_route53_resolver_query_log_config.this[0].id, null)
+}
+
+output "r53_resolver_query_log_config_arn" {
+  description = "The ARN of the Route 53 Resolver query logging configuration"
+  value       = try(aws_route53_resolver_query_log_config.this[0].arn, null)
+}
+
+output "r53_resolver_query_log_cw_log_group_arn" {
+  description = "The ARN of the CloudWatch Log Group for Route 53 Resolver query logs"
+  value       = try(aws_cloudwatch_log_group.r53_resolver_query_log[0].arn, null)
+}
