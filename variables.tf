@@ -357,6 +357,18 @@ variable "tgw_id_private_route" {
   default     = ""
 }
 
+variable "enable_transit_gateway_private_route_ipv6" {
+  description = "Indicates whether to create an IPv6 default route (::/0) to TGW for VPC private subnets. When enabled, the egress-only internet gateway IPv6 route is not created, so IPv6 egress is routed through the Transit Gateway (mirrors the IPv4 behaviour of enable_transit_gateway_private_route)."
+  type        = bool
+  default     = false
+}
+
+variable "transit_gateway_destination_ipv6_cidr_block" {
+  description = "IPv6 destination CIDR used for the private subnet route to TGW when enable_transit_gateway_private_route_ipv6 is enabled. Defaults to ::/0."
+  type        = string
+  default     = "::/0"
+}
+
 variable "enable_transit_gateway_to_firewall_route" {
   description = "Indicates whether to create a route from TGW subnet to network firewall endpoint in the same AZ"
   type        = bool

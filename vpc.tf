@@ -1,7 +1,7 @@
 locals {
   len_public_subnets          = max(length(var.public_subnets), length(var.public_subnet_ipv6_prefixes))
   len_private_subnets         = max(length(var.private_subnets), length(var.private_subnet_ipv6_prefixes))
-  len_transit_gateway_subnets = max(length(var.transit_gateway_subnets), length(var.private_subnet_ipv6_prefixes))
+  len_transit_gateway_subnets = max(length(var.transit_gateway_subnets), length(var.transit_gateway_subnet_ipv6_prefixes))
 
   max_subnet_length = max(
     local.len_private_subnets,
@@ -95,7 +95,7 @@ resource "aws_subnet" "public" {
   availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
   availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
   cidr_block                                     = var.public_subnet_ipv6_native ? null : element(concat(var.public_subnets, [""]), count.index)
-  enable_dns64                                   = var.enable_ipv6 && var.public_subnet_enable_dns64
+  enable_dns64                                   = var.enable_ipv6 && var.public_subnet_enable_dns64 && length(var.public_subnet_ipv6_prefixes) > 0
   enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.public_subnet_enable_resource_name_dns_aaaa_record_on_launch
   enable_resource_name_dns_a_record_on_launch    = !var.public_subnet_ipv6_native && var.public_subnet_enable_resource_name_dns_a_record_on_launch
   ipv6_cidr_block                                = var.enable_ipv6 && length(var.public_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.public_subnet_ipv6_prefixes[count.index]) : null
@@ -234,7 +234,7 @@ resource "aws_subnet" "transit_gateway" {
   availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
   availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
   cidr_block                                     = var.transit_gateway_subnet_ipv6_native ? null : element(concat(var.transit_gateway_subnets, [""]), count.index)
-  enable_dns64                                   = var.enable_ipv6 && var.transit_gateway_subnet_enable_dns64
+  enable_dns64                                   = var.enable_ipv6 && var.transit_gateway_subnet_enable_dns64 && length(var.transit_gateway_subnet_ipv6_prefixes) > 0
   enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.transit_gateway_subnet_enable_resource_name_dns_aaaa_record_on_launch
   enable_resource_name_dns_a_record_on_launch    = !var.transit_gateway_subnet_ipv6_native && var.transit_gateway_subnet_enable_resource_name_dns_a_record_on_launch
   ipv6_cidr_block                                = var.enable_ipv6 && length(var.transit_gateway_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.transit_gateway_subnet_ipv6_prefixes[count.index]) : null
@@ -301,7 +301,7 @@ resource "aws_subnet" "private" {
   availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
   availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
   cidr_block                                     = var.private_subnet_ipv6_native ? null : element(concat(var.private_subnets, [""]), count.index)
-  enable_dns64                                   = var.enable_ipv6 && var.private_subnet_enable_dns64
+  enable_dns64                                   = var.enable_ipv6 && var.private_subnet_enable_dns64 && length(var.private_subnet_ipv6_prefixes) > 0
   enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.private_subnet_enable_resource_name_dns_aaaa_record_on_launch
   enable_resource_name_dns_a_record_on_launch    = !var.private_subnet_ipv6_native && var.private_subnet_enable_resource_name_dns_a_record_on_launch
   ipv6_cidr_block                                = var.enable_ipv6 && length(var.private_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.private_subnet_ipv6_prefixes[count.index]) : null
@@ -355,6 +355,18 @@ resource "aws_route" "private_transit_gateway" {
   route_table_id         = element(aws_route_table.private[*].id, count.index)
   destination_cidr_block = var.nat_gateway_destination_cidr_block
   transit_gateway_id     = var.tgw_id_private_route
+
+  timeouts {
+    create = "5m"
+  }
+}
+
+resource "aws_route" "private_transit_gateway_ipv6" {
+  count = local.create_vpc && var.enable_transit_gateway_private_route_ipv6 ? 1 : 0
+
+  route_table_id              = element(aws_route_table.private[*].id, count.index)
+  destination_ipv6_cidr_block = var.transit_gateway_destination_ipv6_cidr_block
+  transit_gateway_id          = var.tgw_id_private_route
 
   timeouts {
     create = "5m"
@@ -457,7 +469,7 @@ resource "aws_egress_only_internet_gateway" "this" {
 }
 
 resource "aws_route" "private_ipv6_egress" {
-  count = local.create_vpc && var.create_egress_only_igw && var.enable_ipv6 ? local.len_private_subnets : 0
+  count = local.create_vpc && var.create_egress_only_igw && var.enable_ipv6 && !var.enable_transit_gateway_private_route_ipv6 ? local.len_private_subnets : 0
 
   route_table_id              = element(aws_route_table.private[*].id, count.index)
   destination_ipv6_cidr_block = "::/0"

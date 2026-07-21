@@ -1,0 +1,8 @@
+# Terraform
+.terraform/
+.infracost
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+errored.tfstate
+crash.log
