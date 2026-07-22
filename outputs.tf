@@ -218,6 +218,16 @@ output "private_transit_gateway_ipv6_route_ids" {
   value       = aws_route.private_transit_gateway_ipv6[*].id
 }
 
+output "private_additional_ipv6_route_ids" {
+  description = "List of IDs of the additional IPv6 private subnet routes to the Transit Gateway (per remote VPC /56)"
+  value       = aws_route.private_additional_ipv6[*].id
+}
+
+output "public_additional_ipv6_route_ids" {
+  description = "List of IDs of the additional IPv6 public subnet routes to the Transit Gateway (per remote VPC /56)"
+  value       = aws_route.public_additional_ipv6[*].id
+}
+
 output "private_route_table_association_ids" {
   description = "List of IDs of the private route table association"
   value       = aws_route_table_association.private[*].id

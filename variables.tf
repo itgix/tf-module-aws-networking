@@ -520,6 +520,12 @@ variable "additional_destination_cidr_block" {
   default     = ""
 }
 
+variable "additional_destination_ipv6_cidr_blocks" {
+  description = "List of additional IPv6 destination CIDR blocks routed to the TGW (var.tgw_id_private_route) in the public and/or private route tables. IPv6 equivalent of additional_destination_cidr_block. Because Amazon-provided IPv6 VPC CIDRs are not summarizable into a single supernet (unlike 10.0.0.0/8 for IPv4), this is a list so one route per remote VPC /56 can be created. Routes are only created when enable_ipv6 is true together with enable_additional_public_route / enable_additional_private_route respectively."
+  type        = list(string)
+  default     = []
+}
+
 ################################################################################
 # Private Network ACLs
 ################################################################################

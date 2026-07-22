@@ -160,6 +160,21 @@ resource "aws_route" "public_additional" {
   }
 }
 
+# IPv6 equivalent of public_additional: one route per remote VPC IPv6 /56 -> TGW.
+# Amazon-provided IPv6 CIDRs are not summarizable, so we cannot use a single
+# supernet like 10.0.0.0/8 does for IPv4; hence a list of destinations.
+resource "aws_route" "public_additional_ipv6" {
+  count = local.create_vpc && var.enable_ipv6 && var.enable_additional_public_route ? length(var.additional_destination_ipv6_cidr_blocks) : 0
+
+  route_table_id              = aws_route_table.public[0].id
+  destination_ipv6_cidr_block = var.additional_destination_ipv6_cidr_blocks[count.index]
+  transit_gateway_id          = var.tgw_id_private_route
+
+  timeouts {
+    create = "5m"
+  }
+}
+
 resource "aws_route" "public_internet_gateway_ipv6" {
   count = local.create_public_subnets && var.create_igw && var.enable_ipv6 ? 1 : 0
 
@@ -379,6 +394,35 @@ resource "aws_route" "private_additional" {
   route_table_id         = element(aws_route_table.private[*].id, count.index)
   destination_cidr_block = var.additional_destination_cidr_block
   transit_gateway_id     = var.tgw_id_private_route
+
+  timeouts {
+    create = "5m"
+  }
+}
+
+# IPv6 equivalent of private_additional. Amazon-provided IPv6 CIDRs are not
+# summarizable, so we create one route per (private route table x remote VPC /56).
+# NOTE: count (not for_each) is used on purpose. The remote IPv6 CIDRs are
+# Amazon-assigned (computed) values that are unknown until apply, which cannot be
+# used as for_each keys. The list *length* is plan-known (it is driven by the
+# static enable_* flags on the caller side, not by the CIDR values), so count works.
+locals {
+  private_additional_ipv6_routes = flatten([
+    for rt_idx in range(local.len_private_subnets) : [
+      for ipv6_cidr in var.additional_destination_ipv6_cidr_blocks : {
+        rt_index  = rt_idx
+        ipv6_cidr = ipv6_cidr
+      }
+    ]
+  ])
+}
+
+resource "aws_route" "private_additional_ipv6" {
+  count = local.create_vpc && var.enable_ipv6 && var.enable_additional_private_route ? length(local.private_additional_ipv6_routes) : 0
+
+  route_table_id              = element(aws_route_table.private[*].id, local.private_additional_ipv6_routes[count.index].rt_index)
+  destination_ipv6_cidr_block = local.private_additional_ipv6_routes[count.index].ipv6_cidr
+  transit_gateway_id          = var.tgw_id_private_route
 
   timeouts {
     create = "5m"
