@@ -365,7 +365,7 @@ resource "aws_route_table_association" "private" {
 }
 
 resource "aws_route" "private_transit_gateway" {
-  count = local.create_vpc && var.enable_transit_gateway_private_route ? 1 : 0
+  count = local.create_vpc && var.enable_transit_gateway_private_route ? local.nat_gateway_count : 0
 
   route_table_id         = element(aws_route_table.private[*].id, count.index)
   destination_cidr_block = var.nat_gateway_destination_cidr_block
@@ -377,7 +377,7 @@ resource "aws_route" "private_transit_gateway" {
 }
 
 resource "aws_route" "private_transit_gateway_ipv6" {
-  count = local.create_vpc && var.enable_transit_gateway_private_route_ipv6 ? 1 : 0
+  count = local.create_vpc && var.enable_transit_gateway_private_route_ipv6 ? local.nat_gateway_count : 0
 
   route_table_id              = element(aws_route_table.private[*].id, count.index)
   destination_ipv6_cidr_block = var.transit_gateway_destination_ipv6_cidr_block
