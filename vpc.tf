@@ -91,6 +91,10 @@ locals {
 resource "aws_subnet" "public" {
   count = local.create_public_subnets && (!var.one_nat_gateway_per_az || local.len_public_subnets >= length(var.azs)) ? local.len_public_subnets : 0
 
+  # SECURITY NOTE: when this evaluates to true, ENIs in these public (IGW-routed)
+  # subnets get a globally-routable IPv6 address and become directly reachable from
+  # the internet over IPv6 (no NAT for IPv6) — gated ONLY by security groups, unlike
+  # the IPv4 path. See var.public_subnet_assign_ipv6_address_on_creation.
   assign_ipv6_address_on_creation                = var.enable_ipv6 && var.public_subnet_ipv6_native ? true : var.public_subnet_assign_ipv6_address_on_creation
   availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
   availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
@@ -295,6 +299,23 @@ resource "aws_route" "transit_gateway_to_firewall" {
   route_table_id         = element(aws_route_table.transit_gateway[*].id, count.index)
   destination_cidr_block = var.nat_gateway_destination_cidr_block
   vpc_endpoint_id        = element(var.network_firewall_endpoints, count.index)
+
+  timeouts {
+    create = "5m"
+  }
+}
+
+# IPv6 twin of transit_gateway_to_firewall: steers all IPv6 traffic arriving on the
+# TGW subnet (per-AZ route table) into the AZ-local Network Firewall endpoint for
+# inspection, mirroring the IPv4 "::/0-equivalent -> firewall endpoint" hairpin.
+# Requires the firewall endpoints to sit in dual-stack subnets (enable_ipv6). The
+# same endpoint id is used for both families; appliance mode keeps flows AZ-sticky.
+resource "aws_route" "transit_gateway_to_firewall_ipv6" {
+  count = local.create_vpc && var.enable_transit_gateway_to_firewall_route && var.enable_ipv6 ? local.len_transit_gateway_subnets : 0
+
+  route_table_id              = element(aws_route_table.transit_gateway[*].id, count.index)
+  destination_ipv6_cidr_block = "::/0"
+  vpc_endpoint_id             = element(var.network_firewall_endpoints, count.index)
 
   timeouts {
     create = "5m"

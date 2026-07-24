@@ -173,7 +173,15 @@ variable "public_subnets" {
 }
 
 variable "public_subnet_assign_ipv6_address_on_creation" {
-  description = "Specify true to indicate that network interfaces created in the specified subnet should be assigned an IPv6 address. Default is `false`"
+  # SECURITY NOTE: keep this false unless you have reviewed the security groups.
+  # Enabling it auto-assigns a globally-routable IPv6 address (GUA) to every ENI in
+  # the public subnets. Because these subnets have a "::/0 -> internet gateway" route
+  # and IPv6 has no NAT, such instances become DIRECTLY reachable from the internet
+  # over IPv6 — the ONLY gate is the security group. This differs from the IPv4 setup,
+  # where instances sit behind NAT/private addressing and are not directly reachable
+  # inbound. A security group that (accidentally) allows inbound from ::/0 would expose
+  # the instance to the public internet. Turn on only together with SG review.
+  description = "Specify true to indicate that network interfaces created in the specified subnet should be assigned an IPv6 address. Default is `false`. See the SECURITY NOTE above before enabling for public (IGW-routed) subnets."
   type        = bool
   default     = false
 }
