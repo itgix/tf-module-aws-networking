@@ -413,7 +413,10 @@ resource "aws_route" "private_transit_gateway_ipv6" {
 }
 
 resource "aws_route" "private_additional" {
-  count = local.create_vpc && var.enable_additional_private_route ? local.len_private_subnets : 0
+  # One route per private route table. There are local.nat_gateway_count private route
+  # tables (one per NAT gateway, or a single shared table when single_nat_gateway is set),
+  # and each gets a route to the additional destination CIDR via the TGW.
+  count = local.create_vpc && var.enable_additional_private_route ? local.nat_gateway_count : 0
 
   route_table_id         = element(aws_route_table.private[*].id, count.index)
   destination_cidr_block = var.additional_destination_cidr_block
@@ -431,8 +434,13 @@ resource "aws_route" "private_additional" {
 # used as for_each keys. The list *length* is plan-known (it is driven by the
 # static enable_* flags on the caller side, not by the CIDR values), so count works.
 locals {
+  # One route per (private route table x remote IPv6 CIDR). The number of private route
+  # tables is local.nat_gateway_count (that is what aws_route_table.private is created with:
+  # one table per NAT gateway, or a single shared table when single_nat_gateway is set), so
+  # the route-table dimension iterates over that count and each table is paired with every
+  # remote IPv6 CIDR.
   private_additional_ipv6_routes = flatten([
-    for rt_idx in range(local.len_private_subnets) : [
+    for rt_idx in range(local.nat_gateway_count) : [
       for ipv6_cidr in var.additional_destination_ipv6_cidr_blocks : {
         rt_index  = rt_idx
         ipv6_cidr = ipv6_cidr
