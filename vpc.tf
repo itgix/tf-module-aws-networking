@@ -168,7 +168,10 @@ resource "aws_route" "public_additional" {
 # Amazon-provided IPv6 CIDRs are not summarizable, so we cannot use a single
 # supernet like 10.0.0.0/8 does for IPv4; hence a list of destinations.
 resource "aws_route" "public_additional_ipv6" {
-  count = local.create_vpc && var.enable_ipv6 && var.enable_additional_public_route ? length(var.additional_destination_ipv6_cidr_blocks) : 0
+  # Decoupled from enable_additional_public_route (the IPv4 flag) so a caller can add
+  # IPv6 destinations independently. Created whenever enable_ipv6 is set and the IPv6
+  # destination list is non-empty (length 0 -> no routes).
+  count = local.create_vpc && var.enable_ipv6 ? length(var.additional_destination_ipv6_cidr_blocks) : 0
 
   route_table_id              = aws_route_table.public[0].id
   destination_ipv6_cidr_block = var.additional_destination_ipv6_cidr_blocks[count.index]
@@ -439,7 +442,10 @@ locals {
 }
 
 resource "aws_route" "private_additional_ipv6" {
-  count = local.create_vpc && var.enable_ipv6 && var.enable_additional_private_route ? length(local.private_additional_ipv6_routes) : 0
+  # Decoupled from enable_additional_private_route (the IPv4 flag) so a caller can add
+  # IPv6 east-west destinations independently of any IPv4 additional route. Created
+  # whenever enable_ipv6 is set and the IPv6 destination list is non-empty.
+  count = local.create_vpc && var.enable_ipv6 ? length(local.private_additional_ipv6_routes) : 0
 
   route_table_id              = element(aws_route_table.private[*].id, local.private_additional_ipv6_routes[count.index].rt_index)
   destination_ipv6_cidr_block = local.private_additional_ipv6_routes[count.index].ipv6_cidr
