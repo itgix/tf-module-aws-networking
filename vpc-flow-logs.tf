@@ -52,7 +52,7 @@ resource "aws_cloudwatch_log_group" "flow_log" {
   skip_destroy      = var.flow_log_cloudwatch_log_group_skip_destroy
   lifecycle {
     ignore_changes = [
-        retention_in_days
+      retention_in_days
     ]
   }
 

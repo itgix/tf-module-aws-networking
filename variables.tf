@@ -173,7 +173,15 @@ variable "public_subnets" {
 }
 
 variable "public_subnet_assign_ipv6_address_on_creation" {
-  description = "Specify true to indicate that network interfaces created in the specified subnet should be assigned an IPv6 address. Default is `false`"
+  # SECURITY NOTE: keep this false unless you have reviewed the security groups.
+  # Enabling it auto-assigns a globally-routable IPv6 address (GUA) to every ENI in
+  # the public subnets. Because these subnets have a "::/0 -> internet gateway" route
+  # and IPv6 has no NAT, such instances become DIRECTLY reachable from the internet
+  # over IPv6 — the ONLY gate is the security group. This differs from the IPv4 setup,
+  # where instances sit behind NAT/private addressing and are not directly reachable
+  # inbound. A security group that (accidentally) allows inbound from ::/0 would expose
+  # the instance to the public internet. Turn on only together with SG review.
+  description = "Specify true to indicate that network interfaces created in the specified subnet should be assigned an IPv6 address. Default is `false`. See the SECURITY NOTE above before enabling for public (IGW-routed) subnets."
   type        = bool
   default     = false
 }
@@ -357,6 +365,18 @@ variable "tgw_id_private_route" {
   default     = ""
 }
 
+variable "enable_transit_gateway_private_route_ipv6" {
+  description = "Indicates whether to create an IPv6 default route (::/0) to TGW for VPC private subnets. When enabled, the egress-only internet gateway IPv6 route is not created, so IPv6 egress is routed through the Transit Gateway (mirrors the IPv4 behaviour of enable_transit_gateway_private_route)."
+  type        = bool
+  default     = false
+}
+
+variable "transit_gateway_destination_ipv6_cidr_block" {
+  description = "IPv6 destination CIDR used for the private subnet route to TGW when enable_transit_gateway_private_route_ipv6 is enabled. Defaults to ::/0."
+  type        = string
+  default     = "::/0"
+}
+
 variable "enable_transit_gateway_to_firewall_route" {
   description = "Indicates whether to create a route from TGW subnet to network firewall endpoint in the same AZ"
   type        = bool
@@ -506,6 +526,12 @@ variable "additional_destination_cidr_block" {
   description = "The additional CIDR Block that would be used in our private/public route tables."
   type        = string
   default     = ""
+}
+
+variable "additional_destination_ipv6_cidr_blocks" {
+  description = "List of additional IPv6 destination CIDR blocks routed to the TGW (var.tgw_id_private_route) in the public and/or private route tables. IPv6 equivalent of additional_destination_cidr_block. Because Amazon-provided IPv6 VPC CIDRs are not summarizable into a single supernet (unlike 10.0.0.0/8 for IPv4), this is a list so one route per remote VPC /56 can be created. Routes are only created when enable_ipv6 is true together with enable_additional_public_route / enable_additional_private_route respectively."
+  type        = list(string)
+  default     = []
 }
 
 ################################################################################

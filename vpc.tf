@@ -1,7 +1,7 @@
 locals {
   len_public_subnets          = max(length(var.public_subnets), length(var.public_subnet_ipv6_prefixes))
   len_private_subnets         = max(length(var.private_subnets), length(var.private_subnet_ipv6_prefixes))
-  len_transit_gateway_subnets = max(length(var.transit_gateway_subnets), length(var.private_subnet_ipv6_prefixes))
+  len_transit_gateway_subnets = max(length(var.transit_gateway_subnets), length(var.transit_gateway_subnet_ipv6_prefixes))
 
   max_subnet_length = max(
     local.len_private_subnets,
@@ -91,12 +91,16 @@ locals {
 resource "aws_subnet" "public" {
   count = local.create_public_subnets && (!var.one_nat_gateway_per_az || local.len_public_subnets >= length(var.azs)) ? local.len_public_subnets : 0
 
+  # SECURITY NOTE: when this evaluates to true, ENIs in these public (IGW-routed)
+  # subnets get a globally-routable IPv6 address and become directly reachable from
+  # the internet over IPv6 (no NAT for IPv6) — gated ONLY by security groups, unlike
+  # the IPv4 path. See var.public_subnet_assign_ipv6_address_on_creation.
   assign_ipv6_address_on_creation                = var.enable_ipv6 && var.public_subnet_ipv6_native ? true : var.public_subnet_assign_ipv6_address_on_creation
   availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
   availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
   cidr_block                                     = var.public_subnet_ipv6_native ? null : element(concat(var.public_subnets, [""]), count.index)
-  enable_dns64                                   = var.enable_ipv6 && var.public_subnet_enable_dns64
-  enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.public_subnet_enable_resource_name_dns_aaaa_record_on_launch
+  enable_dns64                                   = var.enable_ipv6 && var.public_subnet_enable_dns64 && length(var.public_subnet_ipv6_prefixes) > 0
+  enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.public_subnet_enable_resource_name_dns_aaaa_record_on_launch && (length(var.public_subnet_ipv6_prefixes) > 0 || var.public_subnet_ipv6_native)
   enable_resource_name_dns_a_record_on_launch    = !var.public_subnet_ipv6_native && var.public_subnet_enable_resource_name_dns_a_record_on_launch
   ipv6_cidr_block                                = var.enable_ipv6 && length(var.public_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.public_subnet_ipv6_prefixes[count.index]) : null
   ipv6_native                                    = var.enable_ipv6 && var.public_subnet_ipv6_native
@@ -154,6 +158,24 @@ resource "aws_route" "public_additional" {
   route_table_id         = aws_route_table.public[0].id
   destination_cidr_block = var.additional_destination_cidr_block
   transit_gateway_id     = var.tgw_id_private_route
+
+  timeouts {
+    create = "5m"
+  }
+}
+
+# IPv6 equivalent of public_additional: one route per remote VPC IPv6 /56 -> TGW.
+# Amazon-provided IPv6 CIDRs are not summarizable, so we cannot use a single
+# supernet like 10.0.0.0/8 does for IPv4; hence a list of destinations.
+resource "aws_route" "public_additional_ipv6" {
+  # Decoupled from enable_additional_public_route (the IPv4 flag) so a caller can add
+  # IPv6 destinations independently. Created whenever enable_ipv6 is set and the IPv6
+  # destination list is non-empty (length 0 -> no routes).
+  count = local.create_vpc && var.enable_ipv6 ? length(var.additional_destination_ipv6_cidr_blocks) : 0
+
+  route_table_id              = aws_route_table.public[0].id
+  destination_ipv6_cidr_block = var.additional_destination_ipv6_cidr_blocks[count.index]
+  transit_gateway_id          = var.tgw_id_private_route
 
   timeouts {
     create = "5m"
@@ -234,8 +256,8 @@ resource "aws_subnet" "transit_gateway" {
   availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
   availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
   cidr_block                                     = var.transit_gateway_subnet_ipv6_native ? null : element(concat(var.transit_gateway_subnets, [""]), count.index)
-  enable_dns64                                   = var.enable_ipv6 && var.transit_gateway_subnet_enable_dns64
-  enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.transit_gateway_subnet_enable_resource_name_dns_aaaa_record_on_launch
+  enable_dns64                                   = var.enable_ipv6 && var.transit_gateway_subnet_enable_dns64 && length(var.transit_gateway_subnet_ipv6_prefixes) > 0
+  enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.transit_gateway_subnet_enable_resource_name_dns_aaaa_record_on_launch && (length(var.transit_gateway_subnet_ipv6_prefixes) > 0 || var.transit_gateway_subnet_ipv6_native)
   enable_resource_name_dns_a_record_on_launch    = !var.transit_gateway_subnet_ipv6_native && var.transit_gateway_subnet_enable_resource_name_dns_a_record_on_launch
   ipv6_cidr_block                                = var.enable_ipv6 && length(var.transit_gateway_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.transit_gateway_subnet_ipv6_prefixes[count.index]) : null
   ipv6_native                                    = var.enable_ipv6 && var.transit_gateway_subnet_ipv6_native
@@ -286,6 +308,23 @@ resource "aws_route" "transit_gateway_to_firewall" {
   }
 }
 
+# IPv6 twin of transit_gateway_to_firewall: steers all IPv6 traffic arriving on the
+# TGW subnet (per-AZ route table) into the AZ-local Network Firewall endpoint for
+# inspection, mirroring the IPv4 "::/0-equivalent -> firewall endpoint" hairpin.
+# Requires the firewall endpoints to sit in dual-stack subnets (enable_ipv6). The
+# same endpoint id is used for both families; appliance mode keeps flows AZ-sticky.
+resource "aws_route" "transit_gateway_to_firewall_ipv6" {
+  count = local.create_vpc && var.enable_transit_gateway_to_firewall_route && var.enable_ipv6 ? local.len_transit_gateway_subnets : 0
+
+  route_table_id              = element(aws_route_table.transit_gateway[*].id, count.index)
+  destination_ipv6_cidr_block = "::/0"
+  vpc_endpoint_id             = element(var.network_firewall_endpoints, count.index)
+
+  timeouts {
+    create = "5m"
+  }
+}
+
 ################################################################################
 # Private Subnets
 ################################################################################
@@ -301,8 +340,8 @@ resource "aws_subnet" "private" {
   availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
   availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
   cidr_block                                     = var.private_subnet_ipv6_native ? null : element(concat(var.private_subnets, [""]), count.index)
-  enable_dns64                                   = var.enable_ipv6 && var.private_subnet_enable_dns64
-  enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.private_subnet_enable_resource_name_dns_aaaa_record_on_launch
+  enable_dns64                                   = var.enable_ipv6 && var.private_subnet_enable_dns64 && length(var.private_subnet_ipv6_prefixes) > 0
+  enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.private_subnet_enable_resource_name_dns_aaaa_record_on_launch && (length(var.private_subnet_ipv6_prefixes) > 0 || var.private_subnet_ipv6_native)
   enable_resource_name_dns_a_record_on_launch    = !var.private_subnet_ipv6_native && var.private_subnet_enable_resource_name_dns_a_record_on_launch
   ipv6_cidr_block                                = var.enable_ipv6 && length(var.private_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.private_subnet_ipv6_prefixes[count.index]) : null
   ipv6_native                                    = var.enable_ipv6 && var.private_subnet_ipv6_native
@@ -350,7 +389,7 @@ resource "aws_route_table_association" "private" {
 }
 
 resource "aws_route" "private_transit_gateway" {
-  count = local.create_vpc && var.enable_transit_gateway_private_route ? 1 : 0
+  count = local.create_vpc && var.enable_transit_gateway_private_route ? local.nat_gateway_count : 0
 
   route_table_id         = element(aws_route_table.private[*].id, count.index)
   destination_cidr_block = var.nat_gateway_destination_cidr_block
@@ -361,12 +400,64 @@ resource "aws_route" "private_transit_gateway" {
   }
 }
 
+resource "aws_route" "private_transit_gateway_ipv6" {
+  count = local.create_vpc && var.enable_transit_gateway_private_route_ipv6 ? local.nat_gateway_count : 0
+
+  route_table_id              = element(aws_route_table.private[*].id, count.index)
+  destination_ipv6_cidr_block = var.transit_gateway_destination_ipv6_cidr_block
+  transit_gateway_id          = var.tgw_id_private_route
+
+  timeouts {
+    create = "5m"
+  }
+}
+
 resource "aws_route" "private_additional" {
-  count = local.create_vpc && var.enable_additional_private_route ? local.len_private_subnets : 0
+  # One route per private route table. There are local.nat_gateway_count private route
+  # tables (one per NAT gateway, or a single shared table when single_nat_gateway is set),
+  # and each gets a route to the additional destination CIDR via the TGW.
+  count = local.create_vpc && var.enable_additional_private_route ? local.nat_gateway_count : 0
 
   route_table_id         = element(aws_route_table.private[*].id, count.index)
   destination_cidr_block = var.additional_destination_cidr_block
   transit_gateway_id     = var.tgw_id_private_route
+
+  timeouts {
+    create = "5m"
+  }
+}
+
+# IPv6 equivalent of private_additional. Amazon-provided IPv6 CIDRs are not
+# summarizable, so we create one route per (private route table x remote VPC /56).
+# NOTE: count (not for_each) is used on purpose. The remote IPv6 CIDRs are
+# Amazon-assigned (computed) values that are unknown until apply, which cannot be
+# used as for_each keys. The list *length* is plan-known (it is driven by the
+# static enable_* flags on the caller side, not by the CIDR values), so count works.
+locals {
+  # One route per (private route table x remote IPv6 CIDR). The number of private route
+  # tables is local.nat_gateway_count (that is what aws_route_table.private is created with:
+  # one table per NAT gateway, or a single shared table when single_nat_gateway is set), so
+  # the route-table dimension iterates over that count and each table is paired with every
+  # remote IPv6 CIDR.
+  private_additional_ipv6_routes = flatten([
+    for rt_idx in range(local.nat_gateway_count) : [
+      for ipv6_cidr in var.additional_destination_ipv6_cidr_blocks : {
+        rt_index  = rt_idx
+        ipv6_cidr = ipv6_cidr
+      }
+    ]
+  ])
+}
+
+resource "aws_route" "private_additional_ipv6" {
+  # Decoupled from enable_additional_private_route (the IPv4 flag) so a caller can add
+  # IPv6 east-west destinations independently of any IPv4 additional route. Created
+  # whenever enable_ipv6 is set and the IPv6 destination list is non-empty.
+  count = local.create_vpc && var.enable_ipv6 ? length(local.private_additional_ipv6_routes) : 0
+
+  route_table_id              = element(aws_route_table.private[*].id, local.private_additional_ipv6_routes[count.index].rt_index)
+  destination_ipv6_cidr_block = local.private_additional_ipv6_routes[count.index].ipv6_cidr
+  transit_gateway_id          = var.tgw_id_private_route
 
   timeouts {
     create = "5m"
@@ -457,7 +548,7 @@ resource "aws_egress_only_internet_gateway" "this" {
 }
 
 resource "aws_route" "private_ipv6_egress" {
-  count = local.create_vpc && var.create_egress_only_igw && var.enable_ipv6 ? local.len_private_subnets : 0
+  count = local.create_vpc && var.create_egress_only_igw && var.enable_ipv6 && !var.enable_transit_gateway_private_route_ipv6 ? local.len_private_subnets : 0
 
   route_table_id              = element(aws_route_table.private[*].id, count.index)
   destination_ipv6_cidr_block = "::/0"
